@@ -1,0 +1,63 @@
+name: build-and-test
+
+# Everything here runs offline: no API key, no network calls.
+# The AI explanation layer is optional and stays disabled in CI.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  windows-msvc:
+    name: Windows / MSVC
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: cmd
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # build.bat locates vcvars64.bat itself (hardcoded paths first, then
+      # vswhere), so the runner's VS edition does not matter.
+      - name: Build (Release)
+        run: build.bat
+
+      - name: Run offline unit tests
+        run: tools\test.bat
+
+      - name: Analyse the bundled demo repository
+        run: build\RippleTrace.exe impact samples\tinybank --fn sha256_hex --no-color
+
+      # The Web UI is the headline feature; prove it actually serves and that
+      # /api/health answers before calling the build good.
+      - name: Web server smoke test
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD 'build\RippleTrace.exe'
+          $proc = Start-Process -FilePath $exe `
+                    -ArgumentList 'serve', 'samples', '--port', '8080' `
+                    -WorkingDirectory $PWD -PassThru -WindowStyle Hidden
+          $healthy = $false
+          foreach ($attempt in 1..20) {
+            Start-Sleep -Milliseconds 500
+            try {
+              $health = Invoke-RestMethod 'http://127.0.0.1:8080/api/health' -TimeoutSec 5
+              if ($health.ok) { $healthy = $true; break }
+            } catch {
+              # server not up yet
+            }
+          }
+          try {
+            $index = Invoke-WebRequest 'http://127.0.0.1:8080/' -UseBasicParsing -TimeoutSec 10
+            if ($index.StatusCode -ne 200) { throw "GET / returned $($index.StatusCode)" }
+            Write-Host "GET / -> 200 ($($index.RawContentLength) bytes)"
+          } finally {
+            Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          }
+          if (-not $healthy) { throw 'server never reported healthy on /api/health' }
+          Write-Host 'web server smoke test passed'

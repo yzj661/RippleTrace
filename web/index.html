@@ -1,0 +1,1083 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="涟漪 RippleTrace：分析代码变更会影响哪些函数、测试和调用链。">
+<title>涟漪 RippleTrace · 代码变更影响面分析</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2311151b'/%3E%3Cpath d='M32 10v16M32 38v16M10 32h16M38 32h16M17 17l11 11M36 36l11 11' stroke='%23ff6b6b' stroke-width='5' stroke-linecap='round'/%3E%3Ccircle cx='32' cy='32' r='7' fill='%234c9aff'/%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:linear-gradient(160deg,#0d1b1e 0%,#10242a 50%,#0f1f24 100%);
+    --panel:rgba(20,38,42,.55); --panel2:rgba(30,52,58,.6); --line:rgba(255,255,255,.06);
+    --fg:#e8f0ee; --dim:#7fa09a; --accent:#5ec4b8;
+    --critical:#e88b8b; --high:#e8c48b; --medium:#7fc4d4; --low:#8fd4a8;
+    --changed:var(--critical); --success:#8fd4a8; --warn:#e8c48b;
+    --info:#7fc4d4; --error:#e88b8b;
+    --glassShadow:0 8px 32px rgba(0,0,0,.25),inset 0 1px 0 rgba(255,255,255,.04);
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:radial-gradient(ellipse at top left,rgba(94,180,180,.08),transparent 60%),var(--bg);
+       background-attachment:fixed;color:var(--fg);font:14px/1.5 -apple-system,"Segoe UI",system-ui,"Microsoft YaHei",sans-serif}
+  header{position:sticky;top:0;z-index:10;padding:18px 22px;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;
+         background:rgba(13,27,30,.7);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
+         border-bottom:1px solid transparent;border-image:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent) 1}
+  header h1{margin:0;font-size:19px;letter-spacing:.3px;color:var(--fg)}
+  header .tag{color:var(--dim);font-size:12.5px}header .spacer{flex:1}
+  #btnBackHome{display:none;padding:7px 11px;font-size:12px}
+  body.workspace-active #btnBackHome{display:inline-flex}
+  .badge{font-size:12px;color:var(--dim);border:1px solid rgba(255,255,255,.1);border-radius:999px;padding:4px 11px;background:rgba(255,255,255,.03)}
+  main{padding:24px 22px 60px;max-width:1500px;margin:0 auto}
+  #viewWelcome{min-height:calc(100vh - 64px);display:flex;align-items:center;justify-content:center}
+  .welcomeInner{width:100%;max-width:720px;padding:40px;text-align:center}
+  .welcomeBrand{display:grid;place-items:center;margin:0 auto 14px;width:48px;height:48px;border-radius:50%;background:rgba(94,196,184,.08);box-shadow:0 0 26px rgba(94,196,184,.22)}
+  .brandMark{width:48px;height:48px;filter:drop-shadow(0 0 7px rgba(94,196,184,.38))}
+  .welcomeTitle{margin:0;font-size:40px;line-height:1.1;font-weight:700;letter-spacing:-.02em;background:linear-gradient(180deg,#fff,#b8e0da);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .welcomeSubtitle{margin-top:8px;color:var(--dim);font-size:18px}.welcomeDescription{margin:12px 0 0;color:var(--dim);font-size:15px}
+  .welcomeCard{margin-top:36px;padding:28px;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:20px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:var(--glassShadow);animation:fadeUp .4s ease-out both}
+  .welcomeCard label{display:block;margin-bottom:8px;color:var(--dim);font-size:12px;letter-spacing:.04em}.welcomeCard input{width:100%;min-height:44px;font-size:15px}.welcomeCard>button{width:100%;margin-top:16px;padding:12px;font-size:15px}.welcomeCard>button.ghost{margin-top:10px}.welcomeHint{margin-top:14px;text-align:center}.welcomeCard #welcomeError:empty{display:none}.welcomeCard #welcomeError .err{margin:14px 0 0}
+  .welcomeFeatures{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:48px;text-align:left}.featureCard{display:flex;flex-direction:column;gap:5px;padding:16px;border:1px solid var(--line);border-radius:14px;background:rgba(20,38,42,.35);box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}.featureCard b{font-size:13px;color:var(--fg)}.featureCard span{color:var(--dim);font-size:12px;line-height:1.55}
+  .bar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;background:var(--panel);border:1px solid var(--line);
+       border-radius:16px;padding:16px 20px;margin-bottom:16px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:var(--glassShadow)}
+  .bar label{color:var(--dim);font-size:12.5px}.bar input.path{min-width:300px;flex:1}
+  input,select,button{font:inherit;color:var(--fg);background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:9px 12px}
+  input::placeholder{color:rgba(127,160,154,.7)}input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(94,196,184,.12)}
+  :where(button,input,select,[tabindex]):focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  button{cursor:pointer;background:linear-gradient(135deg,#5ec4b8,#7fd4c8);border-color:transparent;color:#0a1a18;font-weight:650;box-shadow:0 4px 20px rgba(94,196,184,.3);transition:all .18s ease}
+  button:hover{transform:translateY(-1px);filter:brightness(1.04)}button:disabled{opacity:.5;cursor:default;filter:none;transform:none}
+  button.ghost{background:rgba(255,255,255,.035);border-color:rgba(255,255,255,.1);color:var(--fg);font-weight:500;box-shadow:none}
+  button.ghost:hover{border-color:rgba(94,196,184,.45);color:var(--accent);background:rgba(94,196,184,.08)}
+  .hint{color:var(--dim);font-size:12px;margin-top:6px}
+  .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px}
+  .stats.primary{grid-template-columns:repeat(3,minmax(190px,1fr))}.stats.secondary{grid-template-columns:repeat(auto-fit,minmax(140px,1fr));margin-top:-5px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:18px;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:var(--glassShadow);animation:fadeUp .4s ease-out both}
+  .stat .k{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.5px}.stat .v{font-size:28px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums;white-space:nowrap;
+       background:linear-gradient(180deg,#fff,#b8e0da);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .stat.warn .v{background:none;color:var(--high)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:18px;margin-bottom:18px;overflow:visible;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);box-shadow:var(--glassShadow);animation:fadeUp .4s ease-out both}
+  .panel:nth-child(2){animation-delay:.04s}.panel:nth-child(3){animation-delay:.08s}.panel:nth-child(4){animation-delay:.12s}
+  .panel > h2{margin:0;padding:16px 20px;font-size:14px;font-weight:600;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:10px}
+  .panel > h2 .sub{color:var(--dim);font-weight:400;font-size:12px}.panel .body{padding:16px 20px}
+  table{width:100%;border-collapse:collapse;font-size:12.8px}th{text-align:left;color:var(--dim);font-weight:500;font-size:11px;text-transform:uppercase;letter-spacing:.5px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.06);white-space:nowrap}
+  td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.04);vertical-align:top}tr:last-child td{border-bottom:none}tr.clickable{cursor:pointer}tr.clickable:hover,.impact-row:hover{background:rgba(94,196,184,.06)}
+  .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}.mono{font-family:ui-monospace,"Cascadia Code",Consolas,monospace}.file{color:var(--dim);font-size:12px}
+  .pill{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.5px;padding:3px 8px;border-radius:8px;white-space:nowrap;background:transparent}
+  .pill.CRITICAL{color:var(--critical);background:rgba(232,139,139,.15);border:1px solid rgba(232,139,139,.28)}
+  .pill.HIGH{color:var(--high);background:rgba(232,196,139,.15);border:1px solid rgba(232,196,139,.28)}
+  .pill.MEDIUM{color:var(--medium);background:rgba(127,196,212,.15);border:1px solid rgba(127,196,212,.28)}
+  .pill.LOW{color:var(--low);background:rgba(143,212,168,.15);border:1px solid rgba(143,212,168,.28)}
+  .pill.CHANGED{color:var(--changed);background:rgba(232,139,139,.15);border:1px solid rgba(232,139,139,.28)}
+  .pill.test{color:var(--medium);background:rgba(127,196,212,.12);border:1px solid rgba(127,196,212,.22);font-weight:600}
+  .score{display:inline-flex;align-items:center;gap:7px}.track{width:56px;height:6px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;display:inline-block}.track > i{display:block;height:100%;border-radius:inherit}
+  ul.reasons{margin:5px 0 0;padding-left:15px;color:var(--dim);font-size:12px}ul.reasons li{margin:1px 0}.path{color:var(--dim);font-size:12px;margin-top:5px;word-break:break-all}.path b{color:#c5ddd8;font-weight:500}
+  #graphWrap{position:relative;overflow:auto;background:rgba(10,22,25,.6);border-radius:14px;border:1px solid rgba(255,255,255,.06);min-height:220px;max-height:680px;box-shadow:inset 0 1px 0 rgba(255,255,255,.03)}
+  #graphWrap svg{transform-origin:0 0;transition:transform .16s ease} .graphTools{display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.06);background:rgba(20,38,42,.3)}
+  .graphTools .zoomReadout{color:var(--dim);font-size:12px;min-width:45px;text-align:center}svg{display:block}.node{cursor:pointer}.node rect{stroke-width:1.5}.nodeFrame{fill:rgba(20,38,42,.85);stroke:var(--low)}.nodeMarker{fill:var(--low)}
+  .node.risk-CHANGED .nodeFrame{stroke:var(--changed);stroke-width:2;stroke-dasharray:5 3;filter:drop-shadow(0 0 6px rgba(232,139,139,.25))}.node.risk-CHANGED .nodeMarker{fill:var(--changed)}
+  .node.risk-CRITICAL .nodeFrame{stroke:var(--critical);filter:drop-shadow(0 0 6px rgba(232,139,139,.25))}.node.risk-CRITICAL .nodeMarker{fill:var(--critical)}
+  .node.risk-HIGH .nodeFrame{stroke:var(--high);filter:drop-shadow(0 0 6px rgba(232,196,139,.25))}.node.risk-HIGH .nodeMarker{fill:var(--high)}
+  .node.risk-MEDIUM .nodeFrame{stroke:var(--medium);filter:drop-shadow(0 0 6px rgba(127,196,212,.25))}.node.risk-MEDIUM .nodeMarker{fill:var(--medium)}
+  .node text{font-size:12px;fill:var(--fg);pointer-events:none;font-family:ui-monospace,"Cascadia Code",Consolas,monospace}.node .sub{font-size:10.5px;fill:var(--dim)}.layerLabel{font-size:11px;fill:var(--dim);letter-spacing:.4px}
+  .edge{fill:none;stroke:rgba(255,255,255,.42);stroke-width:1.5}.edge.onPath{stroke:#fff;stroke-width:2.4;filter:drop-shadow(0 0 6px rgba(255,255,255,.62))}.edge.dim{stroke:rgba(255,255,255,.32)}
+  .empty{color:var(--dim);padding:22px;text-align:center;font-size:13px}.alert,.warnbox{border-radius:12px;padding:12px 15px;font-size:12.5px;margin-top:12px;border-left-width:3px;border-left-style:solid;border-top:1px solid transparent;border-right:1px solid transparent;border-bottom:1px solid transparent}
+  .alert.info{background:rgba(127,196,212,.1);border-left-color:var(--info);color:#b9dfe5;border-top-color:rgba(127,196,212,.12);border-right-color:rgba(127,196,212,.08);border-bottom-color:rgba(127,196,212,.08)}
+  .alert.success{background:rgba(143,212,168,.1);border-left-color:var(--success);color:#bfe8ca;border-top-color:rgba(143,212,168,.12);border-right-color:rgba(143,212,168,.08);border-bottom-color:rgba(143,212,168,.08)}
+  .alert.warn{background:rgba(232,196,139,.1);border-left-color:var(--warn);color:#ead7ad;border-top-color:rgba(232,196,139,.12);border-right-color:rgba(232,196,139,.08);border-bottom-color:rgba(232,196,139,.08)}
+  .alert.error{background:rgba(232,139,139,.1);border-left-color:var(--error);color:#efc0c0;border-top-color:rgba(232,139,139,.12);border-right-color:rgba(232,139,139,.08);border-bottom-color:rgba(232,139,139,.08)}
+  .alert.error,.err{background:rgba(232,139,139,.1);border-left-color:var(--error);color:#efc0c0;border-top-color:rgba(232,139,139,.12);border-right-color:rgba(232,139,139,.08);border-bottom-color:rgba(232,139,139,.08)}#error .err{background:rgba(232,139,139,.1)!important;border:1px solid rgba(232,139,139,.12)!important;border-left:3px solid var(--error)!important;color:#efc0c0!important}.err{margin-bottom:14px}#error:empty{display:none}#toastRegion{position:fixed;top:18px;right:18px;z-index:20;width:min(420px,calc(100vw - 36px))}.toast{position:relative;padding-right:42px;box-shadow:0 8px 32px rgba(0,0,0,.25);animation:toastIn .18s ease}.toastClose{position:absolute;right:9px;top:8px;padding:1px 7px;font-size:16px;line-height:1.2}
+  @keyframes toastIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:none}}.legend{display:flex;gap:14px;flex-wrap:wrap;color:var(--dim);font-size:11.8px;padding:10px 20px;border-top:1px solid rgba(255,255,255,.05);align-items:center}.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:middle}
+  .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--accent);border-right-color:transparent;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px;margin-right:7px}@keyframes sp{to{transform:rotate(360deg)}}
+  .tabs{display:inline-flex;gap:4px;background:rgba(30,52,58,.6);border:1px solid rgba(255,255,255,.05);border-radius:12px;padding:4px;margin:12px 15px;overflow:auto}.tabs button{background:transparent;border:0;color:var(--dim);border-radius:8px;padding:8px 14px;font-weight:500;box-shadow:none;white-space:nowrap}.tabs button.active{background:rgba(94,196,184,.15);color:var(--accent);border:0}
+  .tabCount{display:inline-grid;place-items:center;min-width:19px;height:19px;margin-left:5px;padding:0 5px;border-radius:999px;background:rgba(255,255,255,.08);font-size:11px;color:var(--fg)}
+  .impactToolbar{position:sticky;top:0;z-index:5;background:rgba(13,27,30,.72);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);padding:12px 0;margin-bottom:14px;border-bottom:1px solid rgba(255,255,255,.06)}.impactToolbar .context{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.contextTitle{font-weight:650;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.contextTitle small{display:block;color:var(--dim);font-size:12px;font-weight:400}.miniNav{display:flex;gap:4px;flex-wrap:wrap;margin-top:9px}.miniNav a{color:var(--dim);text-decoration:none;font-size:12px;padding:5px 9px;border-radius:8px}.miniNav a:hover,.miniNav a:focus-visible{background:rgba(94,196,184,.1);color:var(--accent)}
+  .filterBar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:12px 15px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(30,52,58,.22)}.filterBar input{min-width:210px;flex:1}.filterChip{background:rgba(255,255,255,.035);color:var(--dim);border-color:rgba(255,255,255,.1);padding:6px 10px;font-size:12px;box-shadow:none}.filterChip.active{color:var(--accent);border-color:rgba(94,196,184,.4);background:rgba(94,196,184,.12)}.tableMeta{color:var(--dim);font-size:12px;margin-left:auto}.impact-row{cursor:pointer}.detail-row{display:none;background:rgba(10,22,25,.28)}.detail-row.open{display:table-row}.detail-cell{padding:11px 15px 13px 88px;color:var(--dim);font-size:12px}.detail-cell b{color:var(--fg);font-weight:500}.reasonToggle{border:0;background:transparent;color:var(--accent);padding:0;font-size:12px;font-weight:500;box-shadow:none}.copyBtn{padding:5px 8px;font-size:11px;background:rgba(94,196,184,.08);color:var(--accent);border-color:rgba(94,196,184,.25);box-shadow:none}.mustRun{color:var(--success);font-size:11px;font-weight:700;margin-left:5px}.tableFootnote{padding:0 15px 12px}.conflictRow{margin-bottom:12px}.notesList{margin:0;padding-left:18px;color:var(--dim);line-height:1.8}.flashRow{animation:rowFlash 1.2s ease}@keyframes rowFlash{50%{background:rgba(94,196,184,.13)}}
+  .nodeTooltip{position:absolute;z-index:4;max-width:min(430px,calc(100% - 20px));padding:10px 12px;background:rgba(13,27,30,.94);backdrop-filter:blur(12px);border:1px solid rgba(94,196,184,.35);border-radius:12px;box-shadow:0 8px 32px rgba(0,0,0,.35);color:var(--fg);font-size:12px;pointer-events:none}.nodeTooltip .muted{color:var(--dim);margin-top:3px}
+  .legendChanged{background:var(--changed)!important;border:2px dashed #f5e9e9}.legendCritical{background:var(--critical)!important}.legendHigh{background:var(--high)!important}.legendMedium{background:var(--medium)!important}.legendLow{background:var(--low)!important}.legendTest{background:rgba(127,196,212,.5)!important}
+  .scanFunctions>summary{cursor:pointer;list-style:none;margin:0;padding:16px 20px;font-size:14px;font-weight:600;border-bottom:1px solid rgba(255,255,255,.06)}.scanFunctions>summary::-webkit-details-marker{display:none}.scanFunctions>summary:before{content:"▸";display:inline-block;margin-right:8px;color:var(--accent)}.scanFunctions[open]>summary:before{transform:rotate(90deg)}
+  .dialogCard{width:min(620px,calc(100vw - 32px));padding:0;background:rgba(20,38,42,.94);color:var(--fg);border:0;backdrop-filter:blur(18px)}dialog{padding:0;background:transparent;border:1px solid rgba(255,255,255,.1);border-radius:18px;box-shadow:0 24px 80px rgba(0,0,0,.55)}dialog::backdrop{background:rgba(5,16,18,.78);backdrop-filter:blur(5px)}.dialogHeader{display:flex;align-items:center;gap:12px;padding:17px 18px;border-bottom:1px solid rgba(255,255,255,.06)}.dialogHeader h2{margin:0;font-size:16px}.dialogHeader button{margin-left:auto;padding:4px 9px;font-size:18px}.dialogCard>p,.dialogCard>input,.functionResults{margin-left:18px;margin-right:18px}.dialogCard>input{width:calc(100% - 36px);margin-top:0;margin-bottom:10px}.functionResults{max-height:430px;overflow:auto;padding-bottom:12px}.functionResult{display:flex;align-items:center;gap:10px;padding:10px;border-radius:10px;cursor:pointer}.functionResult:hover,.functionResult:focus{background:rgba(94,196,184,.08);outline:none}.functionResult .meta{margin-left:auto;color:var(--dim);font-size:12px;white-space:nowrap}
+  .loadingOverlay{display:none;position:absolute;inset:0;z-index:3;place-items:center;background:rgba(13,27,30,.72);backdrop-filter:blur(5px);color:var(--fg);font-size:13px}.is-loading{position:relative;min-height:160px}.is-loading .loadingOverlay{display:grid}.skeleton{height:12px;border-radius:999px;background:rgba(255,255,255,.1);animation:pulse 1.1s ease-in-out infinite}@keyframes pulse{50%{opacity:.45}}
+  .srOnly{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}.mt-2{margin-top:8px}.mt-3{margin-top:12px}.mb-2{margin-bottom:8px}.muted{color:var(--dim)}.noPad{padding:0!important}.noMargin{margin:0!important}.legendHint{margin-left:auto}.aiActions{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.aiHint{margin:0}.aiMeta{color:#a4d0be}.aiHelperWarn{color:#e8c48b}.aiConfigText{line-height:1.8;color:#e3d4b5}.aiHeading{margin:16px 0 6px;font-weight:600}.aiSummary{color:#c8dfda;line-height:1.75}.rejectedHeading{color:var(--high)}.rejectedList{margin:0;padding-left:18px;color:#e3d4b5;line-height:1.75}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  .stats .stat:nth-child(2){animation-delay:.04s}.stats .stat:nth-child(3){animation-delay:.08s}.stats .stat:nth-child(4){animation-delay:.12s}.stats .stat:nth-child(5){animation-delay:.16s}.stats .stat:nth-child(6){animation-delay:.2s}
+  @media(max-width:760px){main{padding:16px 12px 44px}.stats.primary{grid-template-columns:1fr}.impactToolbar{position:static}.detail-cell{padding-left:14px}.bar{padding:14px}.bar input.path{min-width:220px}.welcomeInner{padding:28px 16px}}
+  @media(max-width:640px){.welcomeFeatures{grid-template-columns:1fr;margin-top:32px}.welcomeCard{padding:22px}.welcomeTitle{font-size:36px}}
+  @media print{ :root{--bg:#fff;--panel:#fff;--panel2:#fff;--line:#bbb;--fg:#111;--dim:#555}body{background:#fff;color:#111;font-size:12px}header{position:static;padding:12px 0;background:#fff;backdrop-filter:none}main{padding:12px 0}.bar,.hint,#health,#toastRegion,.impactToolbar,.graphTools,.tabs,#btnAi,#btnAiCancel,.filterBar,.legend span:last-child,button{display:none!important}.panel,.stat,#graphWrap{border-color:#bbb;break-inside:avoid;box-shadow:none;background:#fff}.panel{break-inside:avoid}.edge.dim{stroke:#999}.node text{fill:#111}.node .sub,.file,.path,.muted{color:#555;fill:#555}table{font-size:10px}th,td{border-color:#ccc}.detail-row.open{display:table-row} }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>涟漪 RippleTrace</h1>
+  <span class="tag">代码变更影响面分析 · 输入改了哪几行，输出谁会被影响</span>
+  <span class="spacer"></span>
+  <button class="ghost" id="btnBackHome">← 换个项目</button>
+  <span class="badge" id="health">检查服务中…</span>
+</header>
+
+<main>
+  <section id="viewWelcome">
+    <div class="welcomeInner">
+      <div class="welcomeBrand" aria-hidden="true">
+        <svg class="brandMark" viewBox="0 0 48 48" role="img">
+          <defs><linearGradient id="brandGradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#5ec4b8"/><stop offset="1" stop-color="#7fd4c8"/></linearGradient></defs>
+          <circle cx="24" cy="24" r="5" fill="url(#brandGradient)"/>
+          <path d="M24 11a13 13 0 0 1 13 13M24 17a7 7 0 0 1 7 7M24 37a13 13 0 0 1-13-13M24 31a7 7 0 0 1-7-7" fill="none" stroke="url(#brandGradient)" stroke-width="2.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h2 class="welcomeTitle">涟漪 RippleTrace</h2>
+      <div class="welcomeSubtitle">代码变更影响面分析</div>
+      <p class="welcomeDescription">选择一个代码库，输入改了哪几行，立刻看到谁会被影响。</p>
+
+      <div class="welcomeCard">
+        <label for="welcomePath">代码库路径</label>
+        <input id="welcomePath" placeholder="输入代码库目录，例如 samples/tinybank" autocomplete="off">
+        <button id="btnWelcomeScan">开始分析</button>
+        <button class="ghost" id="btnWelcomeDemo">载入演示项目</button>
+        <div class="hint welcomeHint">沙箱根目录由启动服务器时指定：<span class="mono" id="welcomeSandbox">—</span></div>
+        <div id="welcomeError"></div>
+      </div>
+
+      <div class="welcomeFeatures">
+        <div class="featureCard"><b>调用图分析</b><span>从变更点沿调用链反向展开</span></div>
+        <div class="featureCard"><b>风险分级</b><span>CRITICAL / HIGH / MEDIUM / LOW 自动评级</span></div>
+        <div class="featureCard"><b>AI 核查</b><span>模型只解释，不决定影响集</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="viewWorkspace" style="display:none">
+    <div class="bar">
+      <label>代码库目录</label>
+      <input class="path" id="path" value="."
+             placeholder="相对于沙箱根目录的路径，或绝对路径">
+      <button id="btnScan">扫描仓库</button>
+      <button class="ghost" id="btnDemo">载入演示</button>
+    </div>
+    <div class="hint">
+      只能分析启动服务器时指定的沙箱目录内的代码。沙箱根：<span class="mono" id="sandbox">—</span>
+    </div>
+
+    <div id="error"></div>
+    <div id="toastRegion" aria-live="polite" aria-atomic="true"></div>
+
+    <!-- ---------------- scan result ---------------- -->
+    <section id="scanSection" style="display:none">
+      <div class="stats" id="stats"></div>
+
+      <details class="panel scanFunctions" open>
+        <summary>影响半径最大的函数 <span class="sub">扇入越高越不能随便改 · 点击可分析</span></summary>
+        <div class="body noPad">
+          <table id="topTable">
+            <thead><tr><th>函数</th><th>所在文件</th><th class="num">扇入</th><th class="num">行数</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+
+    <!-- ---------------- impact result ---------------- -->
+    <section id="impactSection" style="display:none">
+    <div class="impactToolbar">
+      <div class="context">
+        <div class="contextTitle" id="impactTitle">影响分析 <small id="impactSubtitle">请选择一个函数查看影响面</small></div>
+        <span class="spacer"></span>
+        <button class="ghost" id="btnOther">分析其他函数</button>
+        <button class="ghost" id="btnRescan">重新扫描</button>
+      </div>
+      <nav class="miniNav" aria-label="影响分析导航">
+        <a href="#overviewSection">总览</a><a href="#impactGraphSection">影响图</a>
+        <a href="#impactedSection">受影响函数</a><a href="#testsSection" data-tab="tests">测试</a>
+        <a href="#aiSection" data-tab="ai">AI</a><a href="#notesSection" data-tab="notes">局限</a>
+      </nav>
+    </div>
+
+    <div id="overviewSection">
+      <div class="stats primary" id="impactPrimaryStats"></div>
+      <div class="stats secondary" id="impactSecondaryStats"></div>
+      <div id="impactNotice"></div>
+    </div>
+
+    <div class="panel" id="impactGraphSection">
+      <h2>影响面图 <span class="sub">左侧为变更点，向右逐层展开调用者</span></h2>
+      <div class="graphTools">
+        <button class="ghost" id="btnGraphFit">适应窗口</button>
+        <button class="ghost" id="btnGraphReset">重置</button>
+        <button class="ghost" id="btnGraphOut" aria-label="缩小影响图">−</button>
+        <span class="zoomReadout" id="graphZoomReadout">100%</span>
+        <button class="ghost" id="btnGraphIn" aria-label="放大影响图">+</button>
+        <span class="hint noMargin">滚轮缩放 · 拖拽平移 · 双击节点定位表格</span>
+      </div>
+      <div id="graphWrap"><span id="nodeTooltip" hidden></span></div>
+      <div class="legend">
+        <span><i class="legendChanged"></i>变更点</span><span><i class="legendCritical"></i>CRITICAL</span>
+        <span><i class="legendHigh"></i>HIGH</span><span><i class="legendMedium"></i>MEDIUM</span>
+        <span><i class="legendLow"></i>LOW</span><span><i class="legendTest"></i>测试</span>
+        <span class="legendHint">点击任意节点查看它的调用链证据</span>
+      </div>
+    </div>
+
+    <div class="panel" id="impactedSection">
+      <h2>受影响函数 <span class="sub">主结论 · 可搜索、筛选、排序，点击行展开调用链证据</span></h2>
+      <div id="tab-impacted"><span id="impactSearch" hidden></span><span id="impactSort" hidden></span></div>
+    </div>
+
+    <div class="panel" id="evidenceSection">
+      <div class="tabs" id="tabs">
+        <button data-tab="tests">建议重跑的测试 <span class="tabCount" id="badge-tests">0</span></button>
+        <button data-tab="conflicts">变更交互 <span class="tabCount" id="badge-conflicts">0</span></button>
+        <button data-tab="ai">AI 核查建议</button>
+        <button data-tab="notes">局限说明 <span class="tabCount" id="badge-notes">0</span></button>
+      </div>
+      <div class="body noPad">
+        <div id="testsSection"><div id="tab-tests" style="display:none"></div></div>
+        <div id="tab-conflicts" style="display:none"></div>
+        <div id="aiSection"><div id="tab-ai" style="display:none">
+          <!-- Static so the ids exist before any script runs: the contract
+               checker validates every $("id") against the markup. -->
+          <div class="body">
+            <div class="aiActions">
+              <button id="btnAi">让 AI 解释这次变更</button>
+              <button class="ghost" id="btnAiCancel" hidden>取消</button>
+              <span class="hint aiHint">
+                模型只负责解释；影响集由静态分析算出，模型不得更改
+              </span>
+              <span class="hint aiHint">
+                「核查什么」「为什么」由模型用简体中文撰写（函数名、文件路径与代码标识符保持原样，不翻译）
+              </span>
+            </div>
+            <!-- Readiness is reported by /api/health and shown here before the
+                 user clicks, so an unconfigured server explains itself instead
+                 of answering the click with a 503. -->
+            <div id="aiStatus" class="mt-3"></div>
+            <div id="aiOut" class="mt-3"></div>
+          </div>
+        </div></div>
+        <div id="notesSection"><div id="tab-notes" style="display:none"></div></div>
+      </div>
+    </div>
+    </section>
+  </section>
+
+</main>
+
+<dialog id="functionDialog">
+  <form method="dialog" class="dialogCard">
+    <div class="dialogHeader"><h2>分析其他函数</h2><button class="ghost" value="cancel" aria-label="关闭">×</button></div>
+    <p class="hint">输入函数名、类名或文件名，支持模糊匹配。</p>
+    <input id="functionSearch" autocomplete="off" placeholder="搜索函数，例如 sha256 或 AccountService">
+    <div id="functionResults" class="functionResults"></div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+
+/* ------------------------------------------------------------------
+   Environment guard - runs before anything calls fetch(), and before the
+   helpers it uses are even defined, so it does its own minimal DOM work.
+
+   If this file is opened straight from disk (double-click => file://), the
+   document has no origin, so a relative URL such as "/api/scan" cannot be
+   resolved. The browser then throws:
+
+       Failed to parse URL from /api/scan?path=...
+
+   That message is confusing, so we detect the situation up front and explain
+   the fix. The API is deliberately NOT served cross-origin: a local HTTP
+   service that any web page could call would be able to read the sandboxed
+   source tree.
+   ------------------------------------------------------------------ */
+const ENV = { served: location.protocol === "http:" || location.protocol === "https:" };
+
+(function guardFileProtocol(){
+  if (ENV.served) return;
+
+  const escapeHtml = s => String(s == null ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+  const badge = document.getElementById("health");
+  if (badge){
+    badge.textContent = "未通过服务器打开";
+    badge.style.borderColor = "#ff5c5c";
+    badge.style.color = "#ff5c5c";
+  }
+
+  const box = document.getElementById("welcomeError") || document.getElementById("error");
+  if (box){
+    box.innerHTML = `
+      <div class="err" style="background:#3a1a1e;border-color:#7d2b33;line-height:1.75">
+        <b>页面没有通过服务器打开，因此无法调用分析接口。</b>
+        <div style="margin-top:9px;color:#ffd0d0">
+          当前协议是 <span class="mono" style="background:#241014;padding:2px 6px;border-radius:4px">${escapeHtml(location.protocol)}</span>
+          。这种方式下浏览器无法解析 <span class="mono">/api/...</span> 这类相对地址，
+          这正是 <i>Failed to parse URL</i> 的原因。
+        </div>
+        <div style="margin-top:11px">
+          <b>正确做法</b>：在项目目录执行
+          <span class="mono" style="background:#241014;padding:2px 6px;border-radius:4px">serve.bat</span>，
+          然后访问它打印出的地址
+          <a href="http://127.0.0.1:8080/" style="color:#9dc2ff">http://127.0.0.1:8080/</a>。
+        </div>
+        <div style="margin-top:9px;color:#ffd0d0">
+          简单说：<b>不要直接双击 index.html</b>，要让服务器把页面发给你。
+        </div>
+        <div style="margin-top:11px;color:#b9c2d4;font-size:12.5px">
+          命令行等价做法：<br>
+          <span class="mono" style="background:#241014;padding:2px 6px;border-radius:4px">
+            build\RippleTrace.exe serve samples --port 8080
+          </span>
+        </div>
+      </div>`;
+  }
+
+  const bar = document.querySelector("main .bar");
+  if (bar){
+    bar.style.opacity = "0.4";
+    bar.style.pointerEvents = "none";
+  }
+})();
+
+/* ------------------------------------------------------------------
+   State
+   ------------------------------------------------------------------ */
+const state = {
+  root: "",
+  functions: [],
+  scan: null,
+  impact: null,
+  impactFilter: "ALL",
+  impactSearch: "",
+  impactSort: "score",
+  graphZoom: 1,
+  graphPan: {x:0,y:0},
+  aiController: null,
+  toastTimer: null
+};
+
+const $ = id => document.getElementById(id);
+
+function esc(s){
+  return String(s == null ? "" : s)
+    .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+    .replace(/"/g,"&quot;");
+}
+
+function showError(msg, persistent = false){
+  // When the page was not served over HTTP the guard already explained the
+  // situation; overwriting it with "Failed to parse URL" would be a regression.
+  if (!ENV.served) return;
+  if (!msg){ $("error").innerHTML = ""; return; }
+  if (persistent){
+    $("error").innerHTML = `<div class="alert error err">${esc(msg)}</div>`;
+    return;
+  }
+  const toast = document.createElement("div");
+  toast.className = "alert error toast";
+  toast.innerHTML = `<b>操作失败</b><div class="mt-2">${esc(msg)}</div><button class="ghost toastClose" aria-label="关闭提示">×</button>`;
+  $("toastRegion").replaceChildren(toast);
+  toast.querySelector(".toastClose").onclick = () => toast.remove();
+  clearTimeout(state.toastTimer);
+  state.toastTimer = setTimeout(() => toast.remove(), 4000);
+}
+
+function showWelcomeError(msg){
+  const box=$("welcomeError");
+  if (box) box.innerHTML = msg ? `<div class="alert error err">${esc(msg)}</div>` : "";
+}
+
+function enterWorkspace(data){
+  state.scan = data;
+  state.functions = data.functions || [];
+  state.root = data.root;
+  $("path").value = data.root || $("welcomePath").value.trim();
+  $("sandbox").textContent = data.root || "—";
+  renderScan(data);
+  $("impactSection").style.display = "none";
+  $("viewWelcome").style.display = "none";
+  $("viewWorkspace").style.display = "";
+  document.body.classList.add("workspace-active");
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+
+async function doWelcomeScan(useDemo=false){
+  const input=$("welcomePath"), scanBtn=$("btnWelcomeScan"), demoBtn=$("btnWelcomeDemo");
+  if (useDemo){ input.value=(SERVER_INFO && SERVER_INFO.hasSamples) ? "samples/tinybank" : "."; }
+  const p=input.value.trim();
+  if (!p){ showWelcomeError("请输入代码库目录"); input.focus(); return; }
+  showWelcomeError("");
+  scanBtn.disabled=true; demoBtn.disabled=true;
+  scanBtn.innerHTML='<span class="spin"></span>正在扫描…';
+  try{
+    const data=await api("/api/scan?path="+encodeURIComponent(p));
+    enterWorkspace(data);
+  }catch(e){
+    showWelcomeError(e.message);
+  }finally{
+    scanBtn.disabled=false; demoBtn.disabled=false; scanBtn.textContent="开始分析";
+  }
+}
+
+function leaveWorkspace(){
+  $("viewWorkspace").style.display="none";
+  $("viewWelcome").style.display="";
+  $("scanSection").style.display="none";
+  $("impactSection").style.display="none";
+  document.body.classList.remove("workspace-active");
+  showError("");
+  showWelcomeError("");
+  window.scrollTo({top:0,behavior:"smooth"});
+}
+
+function setLoading(id, loading, label){
+  const box = $(id); if (!box) return;
+  box.classList.toggle("is-loading", loading);
+  let overlay = box.querySelector(":scope > .loadingOverlay");
+  if (loading && !overlay){
+    overlay = document.createElement("div"); overlay.className = "loadingOverlay";
+    box.appendChild(overlay);
+  }
+  if (overlay) overlay.innerHTML = `<span><span class="spin"></span>${esc(label || "加载中")}</span>`;
+}
+
+function functionLabel(id){
+  const parts = String(id || "").split("::");
+  return parts.length > 2 ? parts.slice(-2).join("::") : (parts.length > 1 ? parts.join("::") : String(id || ""));
+}
+
+function riskColor(risk){ return `var(--${String(risk || "low").toLowerCase()})`; }
+
+function updateImpactBadges(d){
+  const s = d.summary || {};
+  $("badge-tests").textContent = s.tests || 0;
+  $("badge-conflicts").textContent = s.conflicts || 0;
+  $("badge-notes").textContent = (d.notes || []).length;
+}
+
+async function api(path, options){
+  const res = await fetch(path, options);
+  let data;
+  try { data = await res.json(); }
+  catch(e){ throw new Error(`服务器返回了非 JSON 响应 (HTTP ${res.status})`); }
+  if (!res.ok || data.ok === false){
+    throw new Error(data && data.error ? data.error : `HTTP ${res.status}`);
+  }
+  return data;
+}
+
+/* ------------------------------------------------------------------
+   Health + startup
+
+   The path box and the auto-load decision both depend on what the server was
+   started with, so they are driven by /api/health rather than hard-coded.
+   An earlier version pinned the box to "samples/tinybank"; the moment the
+   server was started on a different directory that path did not exist, and the
+   page greeted the user with a 400.
+   ------------------------------------------------------------------ */
+let SERVER_INFO = null;
+
+async function checkHealth(){
+  if (!ENV.served) return;      // guard already reported the problem
+  try{
+    const h = await refreshAiHealth();
+    // The AI tab is static markup that exists from the start, so its readiness
+    // banner can be filled in immediately rather than only after a failed call.
+    renderAiStatus(h.ai);
+    const defaultPath=h.hasSamples ? "samples/tinybank" : ".";
+    $("welcomePath").value=defaultPath;
+    if ($("path").value.trim() === "" || $("path").value.trim() === "samples/tinybank"){
+      $("path").value=defaultPath;
+    }
+  }catch(e){
+    $("health").textContent = "服务未响应";
+    showWelcomeError("服务未响应，请确认涟漪 RippleTrace 服务已启动。");
+  }
+}
+
+// Refresh only the lightweight health/config state. This is deliberately
+// separate from checkHealth(): revisiting the AI tab must not trigger an
+// automatic repository scan or demo load.
+async function refreshAiHealth(){
+  const h = await api("/api/health");
+  SERVER_INFO = h;
+  $("health").textContent = `服务正常 · ${h.tool} ${h.version}`;
+  if (h.sandboxRoot){
+    $("sandbox").textContent = h.sandboxRoot;
+    $("welcomeSandbox").textContent = h.sandboxRoot;
+  }
+  return h;
+}
+checkHealth();
+
+/* ------------------------------------------------------------------
+   Scan
+   ------------------------------------------------------------------ */
+async function doScan(){
+  const p = $("path").value.trim();
+  if (!p){ showError("请输入代码库目录"); return; }
+  showError("");
+  $("impactSection").style.display = "none";
+  $("scanSection").style.display = "";
+  setLoading("scanSection", true, "扫描仓库并建立调用图");
+  $("btnScan").disabled = true;
+  $("btnScan").innerHTML = '<span class="spin"></span>扫描中';
+
+  try{
+    const data = await api("/api/scan?path=" + encodeURIComponent(p));
+    state.scan = data;
+    state.functions = data.functions || [];
+    state.root = data.root;
+    $("sandbox").textContent = data.root;
+    renderScan(data);
+    $("impactSection").style.display = "none";
+  }catch(e){
+    showError(e.message);
+  }finally{
+    setLoading("scanSection", false);
+    $("btnScan").disabled = false;
+    $("btnScan").textContent = "扫描仓库";
+  }
+}
+
+function renderScan(data){
+  const s = data.stats;
+  $("stats").innerHTML = [
+    stat("函数", s.functions),
+    stat("已解析调用边", s.edges),
+    stat("未解析调用点", s.unresolved, true, "外部库 / 模板 / 歧义"),
+    stat("测试函数", s.tests),
+    stat("入口点", s.entryPoints),
+    stat("头文件内定义", s.publicApi),
+    stat("歧义短名", s.ambiguous, s.ambiguous > 0)
+  ].join("");
+
+  const tb = $("topTable").querySelector("tbody");
+  tb.innerHTML = (data.topFanIn || []).map(f => `
+    <tr class="clickable" data-fn="${esc(f.id)}">
+      <td class="mono">${esc(f.id)}${f.isTest ? ' <span class="pill test">TEST</span>' : ""}</td>
+      <td class="file mono">${esc(f.file)}:${f.line}</td>
+      <td class="num">${f.fanIn}</td>
+      <td class="num">${f.lines}</td>
+    </tr>`).join("");
+
+  tb.querySelectorAll("tr").forEach(tr => {
+    tr.onclick = () => {
+      $("path").value = state.root || $("path").value;
+      doImpact([tr.dataset.fn]);
+    };
+  });
+
+  $("scanSection").style.display = "";
+  $("scanSection").open = true;
+  fillFunctionResults("");
+}
+
+function stat(k, v, warn, sub){
+  return `<div class="stat${warn ? " warn" : ""}">
+      <div class="k">${esc(k)}</div>
+      <div class="v">${esc(v)}</div>
+      ${sub ? `<div class="hint mt-2">${esc(sub)}</div>` : ""}
+    </div>`;
+}
+
+/* ------------------------------------------------------------------
+   Impact
+   ------------------------------------------------------------------ */
+async function doImpact(fns){
+  if (!fns || !fns.length){ showError("请先扫描仓库并选择一个函数"); return; }
+  showError("");
+  $("impactSection").style.display = "";
+  setLoading("impactSection", true, "计算调用链和风险分层");
+  $("impactTitle").firstChild.textContent = "正在分析…";
+  try{
+    const data = await api("/api/impact", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ path: $("path").value.trim() || state.root, fn: fns })
+    });
+    state.impact = data;
+    renderImpact(data);
+  }catch(e){
+    showError(e.message);
+    $("impactSection").style.display = state.impact ? "" : "none";
+  }finally{
+    setLoading("impactSection", false);
+  }
+}
+
+function renderImpact(d){
+  const s = d.summary;
+
+  let unknown = "";
+  if (d.unknown && d.unknown.length){
+    unknown = `<div class="alert warn">未能解析的名称：<b>${d.unknown.map(esc).join(", ")}</b>
+      —— 该名称在此仓库中没有定义，影响面可能不完整。</div>`;
+  }
+  $("impactNotice").innerHTML = unknown;
+
+  $("impactPrimaryStats").innerHTML = [
+    stat("变更函数", s.changed),
+    stat("受影响函数", s.impacted),
+    stat("CRITICAL + HIGH", (s.critical || 0) + (s.high || 0), (s.critical || 0) > 0, "优先核查")
+  ].join("");
+  $("impactSecondaryStats").innerHTML = [
+    stat("最大跨层", s.maxDepth),
+    stat("建议重跑测试", s.tests),
+    stat("变更交互", s.conflicts, s.conflicts > 0),
+    stat("CRITICAL", s.critical, s.critical > 0),
+    stat("HIGH", s.high, s.high > 0),
+    stat("MEDIUM", s.medium),
+    stat("LOW", s.low),
+    stat("已解析调用边", s.resolvedCallees),
+    stat("未解析调用点", s.unresolvedCallees, s.unresolvedCallees > 0)
+  ].join("");
+
+  const requested = (d.requested || []).join(", ");
+  $("impactTitle").innerHTML = `影响分析 <small id="impactSubtitle">变更点：<span class="mono">${esc(requested || "-")}</span></small>`;
+  updateImpactBadges(d);
+  state.impactFilter = "ALL"; state.impactSearch = ""; state.impactSort = "score";
+  renderGraph(d);
+  renderImpactedTab(d);
+  renderTestsTab(d);
+  renderConflictsTab(d);
+  renderAiTab(d);
+  renderNotesTab(d);
+  activateEvidenceTab("tests");
+
+  $("impactSection").style.display = "";
+  $("scanSection").style.display = "none";
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+
+/* ---- layered SVG graph ---- */
+function renderGraph(d){
+  const layers = (d.layers || []).slice().sort((a,b)=>a.depth-b.depth);
+  if (!layers.length){ $("graphWrap").innerHTML = '<div class="empty">没有可展示的节点</div>'; return; }
+
+  const NODE_W = 232, NODE_H = 44, GAP_Y = 14, GAP_X = 168, PAD = 26;
+  const maxNodes = Math.max(...layers.map(l => l.nodes.length));
+  let x = PAD;
+  const colX = layers.map(l => { const v = x; x += NODE_W + GAP_X; return v; });
+  const totalW = x - GAP_X + PAD;
+  const totalH = PAD * 2 + maxNodes * (NODE_H + GAP_Y) + 20;
+  const pos = {};
+  const parts = [`<svg width="${totalW}" height="${totalH}" viewBox="0 0 ${totalW} ${totalH}" aria-label="影响面调用图">`];
+  parts.push(`<defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="context-stroke"/></marker>
+    <marker id="arwd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#333a47"/></marker>
+  </defs>`);
+
+  layers.forEach((layer, li) => {
+    const startY = PAD + (maxNodes - layer.nodes.length) * (NODE_H + GAP_Y) / 2;
+    parts.push(`<text class="layerLabel" x="${colX[li]}" y="${PAD - 10}">${layer.depth === 0 ? "变更点" : `${layer.depth} 跳调用者`} · ${layer.nodes.length}</text>`);
+    layer.nodes.forEach((n, ni) => {
+      const ny = startY + ni * (NODE_H + GAP_Y);
+      pos[n.id] = {x:colX[li], y:ny, w:NODE_W, h:NODE_H};
+      const label = functionLabel(n.id);
+      const short = label.length > 30 ? label.slice(0,29) + "…" : label;
+      const fill = n.isTest ? "#1b2536" : "#1a1e26";
+      parts.push(`<g class="node risk-${esc(n.risk)}" data-id="${esc(n.id)}" data-depth="${layer.depth}" tabindex="0" role="button" aria-label="${esc(n.id)}，${esc(n.file || "未知文件")}：${esc(n.line || "-")}">
+        <title>${esc(n.id)} · ${esc(n.file || "未知文件")}:${esc(n.line || "-")}</title>
+        <rect class="nodeFrame" x="${pos[n.id].x}" y="${ny}" width="${NODE_W}" height="${NODE_H}" rx="7" fill="${fill}"/>
+        <rect class="nodeMarker" x="${pos[n.id].x}" y="${ny}" width="3.5" height="${NODE_H}" rx="1.5"/>
+        <text x="${pos[n.id].x + 12}" y="${ny + 18}">${esc(short)}</text>
+        <text class="sub" x="${pos[n.id].x + 12}" y="${ny + 34}">${esc(n.risk)}${n.isTest ? " · TEST" : ""}${n.fanIn ? ` · fan-in ${n.fanIn}` : ""}</text></g>`);
+    });
+  });
+
+  const edgeList = [];
+  const seen = new Set();
+  (d.impacted || []).forEach(im => {
+    for (let i=0; i+1<im.path.length; i++){
+      const from=im.path[i], to=im.path[i+1], key=from+"\u0001"+to;
+      if (!seen.has(key)){ seen.add(key); edgeList.push({from,to}); }
+    }
+  });
+  const outgoing = {};
+  edgeList.forEach(e => (outgoing[e.from] ||= []).push(e));
+  const pathFor = (from,to) => {
+    const a=pos[from], b=pos[to]; if (!a || !b) return "";
+    const list=outgoing[from] || [], index=Math.max(0,list.findIndex(e=>e.to===to));
+    const spread=(index-(list.length-1)/2)*15;
+    const p1={x:a.x+a.w,y:a.y+a.h/2}, p2={x:b.x,y:b.y+b.h/2};
+    const mx=(p1.x+p2.x)/2;
+    return `M ${p1.x} ${p1.y} C ${mx} ${p1.y+spread}, ${mx} ${p2.y+spread}, ${p2.x} ${p2.y}`;
+  };
+  edgeList.forEach(e => parts.push(`<path class="edge dim" data-from="${esc(e.from)}" data-to="${esc(e.to)}" d="${pathFor(e.from,e.to)}" marker-end="url(#arwd)"/>`));
+  edgeList.forEach(e => parts.push(`<path class="edge onPath" data-from="${esc(e.from)}" data-to="${esc(e.to)}" d="${pathFor(e.from,e.to)}" marker-end="url(#arw)" opacity="0.75"/>`));
+  parts.push("</svg>");
+  const wrap=$("graphWrap");
+  wrap.innerHTML=parts.join("")+`<div id="nodeTooltip" class="nodeTooltip" hidden></div>`;
+  setupGraphZoom(wrap.querySelector("svg"));
+
+  const highlight = (g, event) => {
+    const id=g.dataset.id, im=(state.impact.impacted || []).find(x=>x.id===id);
+    wrap.querySelectorAll(".edge.onPath").forEach(p=>p.style.opacity="0");
+    if (im && im.path && im.path.length>1){
+      for(let i=0;i+1<im.path.length;i++){
+        const el=wrap.querySelector(`.edge.onPath[data-from="${CSS.escape(im.path[i])}"][data-to="${CSS.escape(im.path[i+1])}"]`);
+        if(el) el.style.opacity="1";
+      }
+    }
+    showNodeDetail(im || {id, file:(d.layers.flatMap(l=>l.nodes).find(n=>n.id===id)||{}).file, line:(d.layers.flatMap(l=>l.nodes).find(n=>n.id===id)||{}).line}, event);
+  };
+  wrap.querySelectorAll(".node").forEach(g => {
+    g.addEventListener("click", e=>highlight(g,e));
+    g.addEventListener("dblclick", ()=>focusImpactRow(g.dataset.id));
+    g.addEventListener("mouseenter", e=>showNodeDetail((d.layers.flatMap(l=>l.nodes).find(n=>n.id===g.dataset.id)||{}),e));
+    g.addEventListener("mouseleave", ()=>{ if(!g.matches(":focus")) $("nodeTooltip").hidden=true; });
+    g.addEventListener("keydown", e=>{
+      if(e.key==="Enter" || e.key===" "){ e.preventDefault(); highlight(g,e); }
+      if(e.key==="ArrowLeft" || e.key==="ArrowRight"){
+        e.preventDefault(); const peers=[...wrap.querySelectorAll(`.node[data-depth="${g.dataset.depth}"]`)];
+        const next=peers[Math.max(0,Math.min(peers.length-1,peers.indexOf(g)+(e.key==="ArrowRight"?1:-1)))]; if(next) next.focus();
+      }
+    });
+  });
+}
+
+function setupGraphZoom(svg){
+  state.graphZoom=1; state.graphPan={x:0,y:0};
+  const wrap=$("graphWrap"); let dragging=false, start=null;
+  const apply=()=>{ svg.style.transform=`translate(${state.graphPan.x}px,${state.graphPan.y}px) scale(${state.graphZoom})`; $("graphZoomReadout").textContent=`${Math.round(state.graphZoom*100)}%`; };
+  const zoomAt=factor=>{ state.graphZoom=Math.max(.45,Math.min(2.5,state.graphZoom*factor)); apply(); };
+  wrap.onwheel=e=>{ e.preventDefault(); zoomAt(e.deltaY<0?1.1:.9); };
+  wrap.onpointerdown=e=>{ if(e.target.closest(".node")) return; dragging=true; start={x:e.clientX-state.graphPan.x,y:e.clientY-state.graphPan.y}; wrap.setPointerCapture(e.pointerId); };
+  wrap.onpointermove=e=>{ if(!dragging) return; state.graphPan={x:e.clientX-start.x,y:e.clientY-start.y}; apply(); };
+  wrap.onpointerup=()=>{dragging=false}; wrap.onpointercancel=()=>{dragging=false};
+  $("btnGraphIn").onclick=()=>zoomAt(1.2); $("btnGraphOut").onclick=()=>zoomAt(.83);
+  $("btnGraphReset").onclick=()=>{state.graphZoom=1;state.graphPan={x:0,y:0};apply()};
+  $("btnGraphFit").onclick=()=>{const vb=svg.viewBox.baseVal; const available=Math.max(320,wrap.clientWidth-28);state.graphZoom=Math.max(.45,Math.min(1.25,available/vb.width));state.graphPan={x:12,y:12};apply()};
+  apply();
+}
+
+function showNodeDetail(im, event){
+  const tip=$("nodeTooltip"); if(!tip || !im) return;
+  const risk=im.risk || "节点";
+  tip.innerHTML=`<b>${esc(im.id || "未知函数")}</b> · ${esc(risk)}
+    <div class="muted">${esc(im.file || "未知文件")}:${esc(im.line || "-")}${im.score != null ? ` · score ${im.score} · ${im.depth} 跳 · fan-in ${im.fanIn}` : ""}</div>
+    ${im.path && im.path.length ? `<div class="muted">调用链：<span class="mono">${im.path.map(esc).join(" → ")}</span></div>` : ""}`;
+  tip.hidden=false;
+  const box=$("graphWrap"), rect=box.getBoundingClientRect();
+  const x=event && event.clientX ? event.clientX-rect.left+12 : 16;
+  const y=event && event.clientY ? event.clientY-rect.top+12 : 16;
+  tip.style.left=`${Math.min(Math.max(8,x),Math.max(8,box.clientWidth-430))}px`;
+  tip.style.top=`${Math.min(Math.max(8,y),Math.max(8,box.clientHeight-100))}px`;
+}
+
+/* ---- tabs ---- */
+function renderImpactedTab(d){
+  const all=d.impacted || [];
+  if (!all.length){ $("tab-impacted").innerHTML = '<div class="empty">没有受影响的函数</div>'; return; }
+  const riskOrder={CRITICAL:0,HIGH:1,MEDIUM:2,LOW:3};
+  let rows=all.filter(im=>state.impactFilter==="ALL" || im.risk===state.impactFilter)
+    .filter(im=>!state.impactSearch || `${im.id} ${im.file}`.toLowerCase().includes(state.impactSearch.toLowerCase()));
+  rows.sort((a,b)=>{
+    const key=state.impactSort;
+    if(key==="risk") return (riskOrder[a.risk]??9)-(riskOrder[b.risk]??9) || b.score-a.score;
+    return (b[key]||0)-(a[key]||0) || (riskOrder[a.risk]??9)-(riskOrder[b.risk]??9);
+  });
+  const chips=["ALL","CRITICAL","HIGH","MEDIUM","LOW"].map(r=>`<button class="filterChip${state.impactFilter===r?" active":""}" data-risk="${r}">${r==="ALL"?"全部":r}</button>`).join("");
+  const body=rows.length ? rows.map((im,i)=>{
+    const reasons=im.reasons || [], preview=reasons.slice(0,2);
+    return `<tr class="impact-row" data-id="${esc(im.id)}" tabindex="0" aria-expanded="false">
+      <td><span class="pill ${esc(im.risk)}">${esc(im.risk)}</span></td>
+      <td><span class="score"><span class="track"><i style="width:${Math.max(0,Math.min(100,im.score||0))}%;background:${riskColor(im.risk)}"></i></span>${esc(im.score)}</span></td>
+      <td class="num">${esc(im.depth)}</td>
+      <td class="mono"><b>${esc(functionLabel(im.id))}</b>${im.isTest ? ' <span class="pill test">TEST</span>' : ""}
+        <div class="file">${esc(im.id)} · ${esc(im.file)}:${esc(im.line)}</div></td>
+      <td class="num">${esc(im.fanIn)}</td>
+      <td><ul class="reasons">${preview.map(r=>`<li>${esc(r)}</li>`).join("")}</ul>${reasons.length>2?`<button class="reasonToggle" data-reasons="${esc(im.id)}">+${reasons.length-2} 条</button>`:""}</td>
+    </tr>
+    <tr class="detail-row" data-detail="${esc(im.id)}"><td colspan="6" class="detail-cell"><b>完整调用链</b><div class="path mono">${(im.path||[]).map(esc).join(" → ")}</div><b>全部成因</b><div class="path">${reasons.map(esc).join(" · ") || "—"}</div></td></tr>`;
+  }).join("") : `<tr><td colspan="6" class="empty">当前筛选没有匹配的函数</td></tr>`;
+  $("tab-impacted").innerHTML=`<div class="filterBar"><input id="impactSearch" value="${esc(state.impactSearch)}" placeholder="搜索函数名或文件名" aria-label="搜索受影响函数"><span class="filterChips">${chips}</span><label class="srOnly" for="impactSort">排序</label><select id="impactSort"><option value="score">按分数</option><option value="risk">按风险</option><option value="depth">按层级</option><option value="fanIn">按扇入</option></select><span class="tableMeta">显示 ${rows.length}/${all.length}</span></div>
+    <table><thead><tr><th>风险</th><th>分数</th><th>层级</th><th>函数</th><th class="num">扇入</th><th>成因</th></tr></thead><tbody>${body}</tbody></table>`;
+  $("impactSearch").oninput=e=>{state.impactSearch=e.target.value;renderImpactedTab(d)};
+  $("impactSort").value=state.impactSort; $("impactSort").onchange=e=>{state.impactSort=e.target.value;renderImpactedTab(d)};
+  $("tab-impacted").querySelectorAll(".filterChip").forEach(btn=>btn.onclick=()=>{state.impactFilter=btn.dataset.risk;renderImpactedTab(d)});
+  $("tab-impacted").querySelectorAll(".impact-row").forEach(row=>{
+    const toggle=()=>{const detail=$("tab-impacted").querySelector(`[data-detail="${CSS.escape(row.dataset.id)}"]`);const open=detail.classList.toggle("open");row.setAttribute("aria-expanded",open)};
+    row.onclick=toggle;row.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle()}};
+  });
+  $("tab-impacted").querySelectorAll(".reasonToggle").forEach(btn=>btn.onclick=e=>{e.stopPropagation();const row=btn.closest(".impact-row"),detail=row.nextElementSibling;detail.classList.add("open");row.setAttribute("aria-expanded","true")});
+}
+
+function focusImpactRow(id){
+  const row=$("tab-impacted").querySelector(`.impact-row[data-id="${CSS.escape(id)}"]`);
+  if(!row){state.impactSearch=id;renderImpactedTab(state.impact);return;}
+  document.getElementById("impactedSection").scrollIntoView({behavior:"smooth",block:"start"});
+  row.focus(); row.classList.add("flashRow"); setTimeout(()=>row.classList.remove("flashRow"),1200);
+}
+
+function renderTestsTab(d){
+  const rows = (d.tests || []).slice().sort((a,b)=>a.distance-b.distance || a.id.localeCompare(b.id));
+  if (!rows.length){
+    $("tab-tests").innerHTML = '<div class="empty">没有测试函数能到达这次变更 —— 这是个风险信号，报告里已计入评分。</div>';
+    return;
+  }
+  $("tab-tests").innerHTML = `<table>
+    <thead><tr><th>测试</th><th>所在文件</th><th class="num">距变更跳数</th><th></th></tr></thead>
+    <tbody>${rows.map(t => `
+      <tr><td class="mono">${esc(t.id)}</td>
+        <td class="file mono">${esc(t.file)}</td>
+        <td class="num">${t.distance}${t.distance===1?'<span class="mustRun">必跑</span>':""}</td>
+        <td class="num"><button class="copyBtn" data-test="${esc(t.id)}">复制命令</button></td></tr>`).join("")}</tbody></table>
+    <div class="hint tableFootnote">
+      跳数越小越应该优先跑：1 跳意味着这个测试直接调用了变更函数。</div>`;
+  $("tab-tests").querySelectorAll(".copyBtn").forEach(btn=>btn.onclick=async()=>{
+    const command=`ctest --tests-regex "${btn.dataset.test}"`;
+    try{await navigator.clipboard.writeText(command);btn.textContent="已复制"}catch(e){showError("浏览器拒绝了剪贴板访问，请手动复制测试命令")}
+  });
+}
+
+function renderConflictsTab(d){
+  const rows = (d.conflicts || []).slice().sort((a,b)=>(b.sharedCallers||0)-(a.sharedCallers||0));
+  if (!rows.length){
+    $("tab-conflicts").innerHTML = '<div class="empty">本次变更的各函数之间没有检测到依赖关系，可以分别验证。</div>';
+    return;
+  }
+  $("tab-conflicts").innerHTML = `<div class="body">` + rows.map(c => `
+    <div class="conflictRow">
+      <span class="mono">${esc(c.a)}</span> &nbsp;↔&nbsp; <span class="mono">${esc(c.b)}</span>
+      <div class="file mt-2">${esc(c.note)} · 共同调用者 ${c.sharedCallers} 个</div>
+    </div>`).join("") + `</div>`;
+}
+
+function renderNotesTab(d){
+  const notes = d.notes || [];
+  const box = $("tab-notes");
+  if (!notes.length){ box.innerHTML = '<div class="empty">没有需要说明的限制</div>'; return; }
+  box.innerHTML = `<div class="body">
+    <ul class="notesList">
+      ${notes.map(n=>`<li>${esc(n)}</li>`).join("")}
+    </ul>
+    <div class="hint mt-3">
+      这些限制意味着上面给出的影响面是一个<b>下界</b>：真实影响可能更大，不会更小。
+    </div></div>`;
+}
+
+/* ---- AI explanation tab ----
+   The markup for this tab is static (see #tab-ai). The model is asked to
+   explain the impact set, never to decide it, and the server enforces that:
+   any function id it returns that is not in the computed impact set is
+   discarded and listed under "rejected claims". Showing that list is the
+   whole point - it is visible proof that the AI cannot talk its way into
+   inventing impact.                                                      */
+function renderAiTab(d){
+  $("aiOut").innerHTML = "";
+  $("btnAi").onclick = () => runAiExplain();
+  $("btnAiCancel").onclick = () => { if (state.aiController) state.aiController.abort(); };
+  // Re-render readiness on every visit: the server re-reads its config file,
+  // so a user who just created one sees the change without a restart.
+  renderAiStatus(SERVER_INFO && SERVER_INFO.ai);
+}
+
+/* Which language the model writes its prose in. Mirrors languageClause() in
+   src/ai_explain.cpp; the server is the source of truth and sends the code. */
+function languageLabel(code){
+  if (code === "en") return "English";
+  if (code === "auto") return "跟随提问语言";
+  return "简体中文";
+}
+
+/* Readiness banner for the AI tab.
+   The server reports where its configuration came from, so a disabled layer
+   comes with the exact file to create instead of a bare 503 after the fact. */
+function renderAiStatus(ai){
+  const box = $("aiStatus");
+  if (!box) return;
+  if (!ai){ box.innerHTML = ""; return; }
+
+  if (ai.enabled){
+    const src = ai.keySource === "environment" ? "环境变量 RIPPLETRACE_AI_KEY"
+              : ai.keySource === "file"        ? `配置文件 ${esc(ai.configFile || "rippletrace.env")}`
+              : "未知来源";
+    const helperWarn = ai.helperAvailable === false
+      ? `<div class="mt-2 aiHelperWarn">未找到 tools/llm_transport.py；若本机原生 TLS 不可用，调用会失败。</div>`
+      : "";
+    const langNote = (!ai.language || ai.language === "zh")
+      ? ""
+      : `<div class="mt-2 aiMeta">回答语言已设为 ${esc(languageLabel(ai.language))}；默认是简体中文。</div>`;
+    box.innerHTML = `<div class="alert success">
+      <b>AI 已就绪</b> · 模型 <span class="mono">${esc(ai.model || "-")}</span>
+      <div class="mt-2 aiMeta">
+        key 来自 ${src} · 回答语言 ${esc(languageLabel(ai.language))}
+        · endpoint <span class="mono">${esc(ai.endpoint || "-")}</span>
+      </div>${langNote}${helperWarn}
+    </div>`;
+    return;
+  }
+
+  const files = (ai.configCandidates || []).map(c => `<span class="mono">${esc(c)}</span>`).join(" 或 ");
+  box.innerHTML = `<div class="alert warn">
+    <b>AI 解释层未配置</b>
+    <div class="mt-2 aiConfigText">
+      服务端没有读到 API Key。任选一种方式，然后直接再点一次按钮即可（服务会重新读取配置，无需重启）：
+      <div class="mt-2">1. 在项目目录创建 <span class="mono">rippletrace.env</span>，写入<br>
+        <span class="mono">RIPPLETRACE_AI_KEY=你的密钥</span>（可再加 <span class="mono">RIPPLETRACE_AI_MODEL=deepseek-chat</span>）</div>
+      <div class="mt-2">2. 或在启动服务前设置环境变量 <span class="mono">RIPPLETRACE_AI_KEY</span></div>
+      <div class="mt-2 aiMeta">查找顺序：${files}</div>
+      <div class="mt-2 aiMeta">API Key 只在服务端读取，不会发送到浏览器。</div>
+    </div>
+  </div>`;
+}
+
+async function runAiExplain(){
+  const out = $("aiOut");
+  const btn = $("btnAi");
+  btn.disabled = true;
+  $("btnAiCancel").hidden = false;
+  state.aiController = new AbortController();
+  btn.innerHTML = '<span class="spin"></span>调用模型中';
+  out.innerHTML = '<div class="hint">正在请求模型解释…（首次调用可能需要几秒）</div>';
+
+  try{
+    const r = await api("/api/explain", {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: "{}",
+      signal: state.aiController.signal
+    });
+    out.innerHTML = renderAiResult(r.ai || {});
+  }catch(e){
+    if (e.name === "AbortError"){
+      out.innerHTML = '<div class="alert info">已取消 AI 请求。</div>';
+      return;
+    }
+    // A disabled or unconfigured AI layer is an expected state, not a crash.
+    out.innerHTML = `<div class="alert warn">
+      <b>AI 解释层不可用</b>
+      <div class="mt-2">${esc(e.message)}</div>
+    </div>`;
+  }finally{
+    state.aiController = null;
+    $("btnAiCancel").hidden = true;
+    btn.disabled = false;
+    btn.textContent = "让 AI 解释这次变更";
+  }
+}
+
+function renderAiResult(ai){
+  if (!ai.ok && ai.error){
+    return `<div class="alert warn"><b>模型调用失败</b>
+      <div class="mt-2">${esc(ai.error)}</div></div>`;
+  }
+
+  let html = "";
+
+  // grounding banner: the core claim, stated in the UI
+  const kept = (ai.points || []).length;
+  const rejected = ai.rejectedCount || 0;
+  html += `<div class="alert success">
+      <b>接地校验</b> · 影响集由静态分析算出并具有权威性；
+      保留 <b>${kept}</b> 条核查点${rejected > 0 ? `，拒绝 <b>${rejected}</b> 条` : ""}。
+      <div class="mt-2 aiMeta">
+        provider=${esc(ai.provider || "-")} · model=${esc(ai.model || "-")}
+        · prompt ${ai.promptChars || 0} 字符
+      </div>
+    </div>`;
+
+  if (ai.summary){
+    html += `<div class="aiHeading">总览</div><div class="aiSummary">${esc(ai.summary)}</div>`;
+  }
+
+  if (kept){
+    html += `<div class="aiHeading">按优先级排序的核查点</div>
+      <table><thead><tr>
+        <th>优先级</th><th>函数</th><th>核查什么</th>
+      </tr></thead><tbody>`;
+    for (const p of ai.points){
+      html += `<tr>
+        <td><span class="pill LOW">P${esc(p.priority)}</span></td>
+        <td class="mono">${esc(p.function)}</td>
+        <td>${esc(p.whatToCheck || "")}
+          ${p.whyItMatters ? `<div class="file mt-2">为什么：${esc(p.whyItMatters)}</div>` : ""}
+        </td></tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+
+  if (rejected > 0 && (ai.rejectedClaims || []).length){
+    html += `<div class="aiHeading rejectedHeading">
+        被拒绝的模型声明</div>
+      <div class="hint mb-2">
+        模型提到了下面的函数，但它们不在算出的影响集里，因此被丢弃——
+        <b>模型不允许决定什么受影响</b>。
+      </div>
+      <ul class="rejectedList">`;
+    for (const c of ai.rejectedClaims){
+      html += `<li class="mono">${esc(c)}</li>`;
+    }
+    html += `</ul>`;
+  }
+
+  return html;
+}
+
+/* ---- tabs wiring ---- */
+$("tabs").querySelectorAll("button").forEach(btn => {
+  btn.onclick = () => {
+    $("tabs").querySelectorAll("button").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    ["tests","conflicts","ai","notes"].forEach(t => {
+      $("tab-" + t).style.display = (t === btn.dataset.tab) ? "" : "none";
+    });
+    if (btn.dataset.tab === "ai"){
+      // The server can pick up a newly created rippletrace.env without restarting.
+      // Refresh the banner at the moment the user opens the tab so it cannot
+      // remain stale from the initial page load.
+      refreshAiHealth()
+        .then(h => renderAiStatus(h.ai))
+        .catch(() => renderAiStatus(SERVER_INFO && SERVER_INFO.ai));
+    }
+  };
+});
+
+function activateEvidenceTab(tab){
+  const btn=$("tabs").querySelector(`[data-tab="${tab}"]`); if(btn) btn.click();
+}
+
+document.querySelectorAll(".miniNav a[data-tab]").forEach(a=>a.onclick=()=>activateEvidenceTab(a.dataset.tab));
+
+function fillFunctionResults(query){
+  const q=String(query||"").trim().toLowerCase();
+  const rows=(state.functions||[]).filter(f=>!q || `${f.id} ${f.file}`.toLowerCase().includes(q)).slice(0,80);
+  $("functionResults").innerHTML=rows.length ? rows.map(f=>`<div class="functionResult" tabindex="0" data-fn="${esc(f.id)}"><span class="mono">${esc(functionLabel(f.id))}</span><span class="meta">${esc(f.file)}:${esc(f.line)}</span></div>`).join("") : '<div class="empty">没有匹配的函数</div>';
+  $("functionResults").querySelectorAll(".functionResult").forEach(item=>{
+    const choose=()=>{ $("functionDialog").close(); doImpact([item.dataset.fn]); };
+    item.onclick=choose;item.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();choose()}};
+  });
+}
+
+/* ---- buttons ---- */
+$("btnScan").onclick = doScan;
+$("path").addEventListener("keydown", e => { if (e.key === "Enter") doScan(); });
+$("btnWelcomeScan").onclick = () => doWelcomeScan(false);
+$("btnWelcomeDemo").onclick = () => doWelcomeScan(true);
+$("welcomePath").addEventListener("keydown", e => { if (e.key === "Enter") doWelcomeScan(false); });
+$("btnBackHome").onclick = leaveWorkspace;
+$("btnOther").onclick = () => { fillFunctionResults(""); $("functionDialog").showModal(); $("functionSearch").focus(); };
+$("functionSearch").oninput = e => fillFunctionResults(e.target.value);
+$("btnRescan").onclick = () => { $("impactSection").style.display="none"; $("scanSection").style.display=""; $("scanSection").open=true; window.scrollTo({top:0,behavior:"smooth"}); };
+
+
+$("btnDemo").onclick = async () => {
+  // Scan a repo and immediately show a high-fan-in function, so a first-time
+  // visitor sees a full result without typing anything.
+  // The bundled demo lives under <sandbox>/samples/tinybank; when the server
+  // was started elsewhere, fall back to the sandbox root (which always exists)
+  // and analyse whatever is there instead of failing on a missing path.
+  const demo = (SERVER_INFO && SERVER_INFO.hasSamples) ? "samples/tinybank" : ".";
+  $("path").value = demo;
+  await doScan();
+  if (state.scan && state.scan.topFanIn && state.scan.topFanIn.length){
+    const preferred = state.scan.topFanIn.find(f => f.id === "sha256_hex")
+                   || state.scan.topFanIn.find(f => !f.isTest)
+                   || state.scan.topFanIn[0];
+    await doImpact([preferred.id]);
+  }
+};
+</script>
+</body>
+</html>

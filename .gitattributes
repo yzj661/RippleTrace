@@ -1,0 +1,26 @@
+# Keep line endings predictable for every clone.
+*
+text=auto
+
+# Windows batch files MUST stay CRLF. cmd.exe mis-parses LF-only .bat files
+# (see the maintenance note in README.md). Without this, a clone made with
+# core.autocrlf=false or on Linux/macOS gets LF .bat files and can break.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Windows-only launcher; keep it consistent with the .bat files it starts.
+*.ps1 text eol=crlf
+
+# Binary assets that must never be line-ending converted.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+*.zip binary
+*.exe binary
+*.obj binary
+*.pdb binary
+*.dll binary
+
+# Markdown and source are deliberately left to text=auto.

@@ -1,0 +1,57 @@
+# Secrets. rippletrace.env holds the model API key and must never be committed;
+# rippletrace.env.example is the shareable template.
+rippletrace.env
+.env
+
+# Build output
+build/
+*.obj
+*.exe
+*.pdb
+*.ilk
+
+# The vendored tree-sitter wheels used only as an accuracy referee.
+tools/_vendor/
+
+# Scratch output from the checkers
+_webcheck.js
+rippletrace_env_*.tmp
+tools/_fake_request.json
+dump_body.bin
+
+# Server log when started detached (see serve.bat / README)
+serve.log
+serve.err.log
+
+# Editor / toolchain noise
+.vs/
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+*.user
+
+# CMake out-of-tree build (README documents `cmake -B build-cmake -S .`)
+build-cmake/
+cmake-build-*/
+CMakeCache.txt
+CMakeFiles/
+*.lib
+*.dll
+*.exp
+*.o
+*.a
+
+# Generated demo output, rewritten every time docs/演示脚本.md is followed
+samples/out/
+
+# Packaged distribution archives
+*.zip
+
+# ------------------------------------------------------------------
+# Internal competition material - deliberately NOT published.
+# Delete the three lines below to publish them as well.
+# ------------------------------------------------------------------
+docs/参赛方案与要求对照.md
+docs/答辩话术.md
+docs/网页端AI功能问题报告.md

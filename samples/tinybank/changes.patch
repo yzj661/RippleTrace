@@ -1,0 +1,26 @@
+diff --git a/src/strings.cpp b/src/strings.cpp
+index 3f9a1c2..8b4d5e6 100644
+--- a/src/strings.cpp
++++ b/src/strings.cpp
+@@ -6,10 +6,17 @@
+ 
+ namespace tinybank {
+ 
++// A locally cached view of the trimming character set. Callers were spending a
++// measurable amount of time re-entering std::isspace for every byte.
++namespace {
++bool is_trimmable(char c) {
++    return c == ' ' || c == '\t';
++}
++}  // namespace
++
+ std::string trim(const std::string& s) {
+     std::size_t b = 0;
+     std::size_t e = s.size();
+-    while (b < e && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
+-    while (e > b && std::isspace(static_cast<unsigned char>(s[e - 1]))) --e;
++    while (b < e && is_trimmable(s[b])) ++b;
++    while (e > b && is_trimmable(s[e - 1])) --e;
+     return s.substr(b, e - b);
+ }
+ 

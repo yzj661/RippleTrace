@@ -1,0 +1,386 @@
+================================================================================
+ RippleTrace concept build 0.1.0 - captured demo output
+ Reproduce with: tools\capture_demo.bat   (all commands run offline)
+================================================================================
+
+### RippleTrace scan samples\tinybank --no-color
+--------------------------------------------------------------------------------
+[RippleTrace] scanned 27 file(s), 97 functions, 164 edges
+涟漪 RippleTrace scan summary
+----------------------------------------------------------------
+  functions defined     : 97
+  resolved call edges   : 164
+  unresolved call sites : 245   (external / template / ambiguous)
+  test functions        : 22
+  entry points          : 22
+  defs in public headers: 8   (bodies in headers only; declaration-only headers count 0)
+  ambiguous short names : 3
+
+Top blast-radius functions (by direct fan-in)
+  function                                         fan-in   lines
+  log_warn                                              8       1
+  trim                                                  8       7
+  Money::format                                         7       7
+  log_info                                              6       1
+  sha256_hex                                            6      11
+  Money::from_cents                                     5       1
+  AuditLog::clear                                       4       1
+  AuditLog::record                                      4      13
+  Config::parse                                         4      22
+  Money.cents                                           4       1
+  log_message                                           4       5
+  rotr                                                  4       3
+
+### RippleTrace impact samples\tinybank --fn sha256_hex --no-color --max-rows 8
+--------------------------------------------------------------------------------
+[RippleTrace] scanned 27 file(s), 97 functions, 164 edges
+涟漪 RippleTrace change-impact report
+========================================================================
+Changed (1): sha256_hex
+
+Blast radius
+  impacted functions : 17   (max depth reached 4)
+  by risk            : 0 critical, 0 high, 10 medium, 7 low
+  tests to re-run    : 11
+  change interactions: 0
+
+Ranked impact (risk = fan-in x distance x exposure)
+  risk     score depth fan-in function
+------------------------------------------------------------------------
+  MEDIUM   46    2     4      AuditLog::record
+          [#########...........]  src\audit.cpp:17
+          - moderate fan-in (4 direct callers)
+          - 2 hops from a change
+          - small utility with wide reuse
+          - covered by at least one test path
+  MEDIUM   44    1     1      test_sha256_abc  [test]
+          [########............]  tests\test_tinybank.cpp:32
+          - direct caller of a changed function
+          - entry point
+          - covered by at least one test path
+  MEDIUM   44    1     1      test_sha256_avalanche  [test]
+          [########............]  tests\test_tinybank.cpp:40
+          - direct caller of a changed function
+          - entry point
+          - covered by at least one test path
+  MEDIUM   44    1     1      test_sha256_empty  [test]
+          [########............]  tests\test_tinybank.cpp:23
+          - direct caller of a changed function
+          - entry point
+          - covered by at least one test path
+  MEDIUM   40    1     2      AuditLog::chain_digest
+          [########............]  src\audit.cpp:35
+          - shared by 2 callers
+          - direct caller of a changed function
+          - covered by at least one test path
+  MEDIUM   32    1     1      AdviceService::advise
+          [######..............]  src\ai_advisor.cpp:44
+          - direct caller of a changed function
+          - covered by at least one test path
+  MEDIUM   32    1     1      audit_fingerprint
+          [######..............]  src\audit.cpp:9
+          - direct caller of a changed function
+          - covered by at least one test path
+  MEDIUM   32    2     1      test_ai_advisor_flow  [test]
+          [######..............]  tests\test_tinybank.cpp:176
+          - 2 hops from a change
+          - entry point
+          - covered by at least one test path
+    ... 9 more (raise --max-rows to see)
+
+Why (shortest call path change -> impact)
+  [MEDIUM] AuditLog::record -> audit_fingerprint -> sha256_hex
+  [MEDIUM] test_sha256_abc -> sha256_hex
+  [MEDIUM] test_sha256_avalanche -> sha256_hex
+  [MEDIUM] test_sha256_empty -> sha256_hex
+  [MEDIUM] AuditLog::chain_digest -> sha256_hex
+  [MEDIUM] AdviceService::advise -> sha256_hex
+  [MEDIUM] audit_fingerprint -> sha256_hex
+  [MEDIUM] test_ai_advisor_flow -> AdviceService::advise -> sha256_hex
+  [MEDIUM] test_audit_chain -> AuditLog::chain_digest -> sha256_hex
+  [MEDIUM] test_sha256_suite -> test_sha256_abc -> sha256_hex
+  [LOW] test_integration_suite -> test_ai_advisor_flow -> AdviceService::advise -> sha256_hex
+  [LOW] test_reconciliation_report -> build_reconciliation -> AuditLog::chain_digest -> sha256_hex
+
+Recommended test selection
+  T test_sha256_abc  (tests\test_tinybank.cpp, 1 hop)
+  T test_sha256_avalanche  (tests\test_tinybank.cpp, 1 hop)
+  T test_sha256_empty  (tests\test_tinybank.cpp, 1 hop)
+  T test_ai_advisor_flow  (tests\test_tinybank.cpp, 2 hops)
+  T test_audit_chain  (tests\test_tinybank.cpp, 2 hops)
+  T test_sha256_suite  (tests\test_tinybank.cpp, 2 hops)
+  T main  (tests\test_main.cpp, 3 hops)
+  T test_integration_suite  (tests\test_tinybank.cpp, 3 hops)
+  T test_reconciliation_report  (tests\test_tinybank.cpp, 3 hops)
+  T test_service_suite  (tests\test_tinybank.cpp, 3 hops)
+  T test_account_transfer_rules  (tests\test_tinybank.cpp, 4 hops)
+
+Limitations
+  * 245 call site(s) could not be resolved to a definition in this repo (external library, template, or ambiguous overload); those edges are excluded from the impact set, so the result is a lower bound.
+  * 3 short name(s) map to multiple definitions; such calls are only resolved when the scope chain or a unique global match decides it.
+
+========================================================================
+
+AI review guidance
+------------------------------------------------------------------------
+  provider=openai-compatible model=deepseek-chat prompt=7114 chars
+  grounding: impact set is authoritative; 8 point(s) kept
+
+Summary
+  本次改动是 sha256_hex（src\sha256.cpp:110），它被 6 处直接调用，影响面扩散到 17 个函数、最深 4 跳，覆盖审计日志、AI 建议和账户转账三条业务链路。风险最高的是审计链路：AuditLog::record 与 AuditLog::chain_digest 直接依赖摘要结果，一旦输出格式或长度变化，审计指纹与链式摘要会整体失效。注意静态分析有 245 个调用点未能解析，实际影响范围可能比报告更大，属于下界。
+
+What to check, per impacted function
+  [P1] AuditLog::record
+       check : 确认 src\audit.cpp:17 处调用 audit_fingerprint 后写入日志的摘要字段长度与编码是否仍与旧格式一致，并检查该函数 4 个直接调用方传入的数据是否会被新实现截断或改变大小写。
+       why   : 它经 audit_fingerprint 间接依赖 sha256_hex，fan-in 为 4，是审计记录写入的汇聚点，摘要格式变化会污染所有已落库的审计条目。
+  [P1] AuditLog::chain_digest
+       check : 检查 src\audit.cpp:35 处把 sha256_hex 结果拼接进链式摘要的方式，确认前一条摘要与当前记录拼接顺序、分隔符未变，并验证 2 个调用方拿到的链值仍可复现。
+       why   : 它是审计链的完整性根基，直接调用 sha256_hex，任何输出差异都会让整条链校验失败，且被 build_reconciliation 等下游复用。
+  [P2] audit_fingerprint
+       check : 核对 src\audit.cpp:9 处对 sha256_hex 输入字符串的构造（字段顺序、分隔符、是否含时间戳），确认改动没有改变喂给哈希的字节序列。
+       why   : 它是 sha256_hex 的直接调用者，也是 AuditLog::record 的唯一入口，输入构造一变，所有审计指纹都会与历史数据不匹配。
+  [P2] AdviceService::advise
+       check : 检查 src\ai_advisor.cpp:44 处使用 sha256_hex 的场景（缓存键、请求指纹或去重标识），确认摘要变化不会导致缓存全部失效或建议结果被错误去重。
+       why   : 它是 sha256_hex 的直接调用者，位于 AI 建议链路，摘要语义变化会直接影响建议的生成与命中行为。
+  [P2] test_sha256_abc
+       check : 确认 tests\test_tinybank.cpp:32 的期望值仍是新实现的正确输出，并检查是否覆盖了输出长度与十六进制小写格式。
+       why   : 它是 sha256_hex 的直接调用测试，是判断改动是否破坏基本哈希契约的第一道关卡。
+  [P3] test_sha256_empty
+       check : 确认 tests\test_tinybank.cpp:23 对空输入仍返回标准空串摘要，检查边界分支是否被改动影响。
+       why   : 空输入是最容易在重构中出错的边界，直接调用 sha256_hex，失败会掩盖更深的逻辑问题。
+  [P3] test_sha256_avalanche
+       check : 确认 tests\test_tinybank.cpp:40 的雪崩效应断言（单比特翻转后输出差异位数）阈值仍成立，避免因实现调整导致误报。
+       why   : 它直接调用 sha256_hex，用于验证哈希质量，若断言过严会在实现等价变更时产生假失败。
+  [P4] test_audit_chain
+       check : 确认 tests\test_tinybank.cpp:161 对链式摘要的期望值随新实现更新，并检查多条目追加后的链校验路径。
+       why   : 它经 AuditLog::chain_digest 到达 sha256_hex，是验证审计链端到端一致性的关键测试。
+
+### RippleTrace diff samples\tinybank --diff samples\tinybank\changes.patch --no-color --max-rows 6
+--------------------------------------------------------------------------------
+[RippleTrace] scanned 27 file(s), 97 functions, 164 edges
+Patch touches 1 file(s), +10 -2 line(s); 1 function body(ies) modified.
+  * trim  src\strings.cpp:9-15  (2 added lines)
+  [attributed added ranges, current-tree line numbers: 9-9, 14-14]
+
+涟漪 RippleTrace change-impact report
+========================================================================
+Changed (1): trim
+
+Blast radius
+  impacted functions : 18   (max depth reached 3)
+  by risk            : 0 critical, 1 high, 14 medium, 3 low
+  tests to re-run    : 10
+  change interactions: 0
+
+Ranked impact (risk = fan-in x distance x exposure)
+  risk     score depth fan-in function
+------------------------------------------------------------------------
+  HIGH     50    1     4      Config::parse
+          [##########..........]  src\config.cpp:11
+          - moderate fan-in (4 direct callers)
+          - direct caller of a changed function
+          - covered by at least one test path
+  MEDIUM   44    1     1      test_strings_basics  [test]
+          [########............]  tests\test_tinybank.cpp:49
+          - direct caller of a changed function
+          - entry point
+          - covered by at least one test path
+  MEDIUM   40    1     2      UserService::add_from_record
+          [########............]  src\user_service.cpp:18
+          - shared by 2 callers
+          - direct caller of a changed function
+          - covered by at least one test path
+  MEDIUM   40    1     2      parse_model_response
+          [########............]  src\ai_advisor.cpp:31
+          - shared by 2 callers
+          - direct caller of a changed function
+          - covered by at least one test path
+  MEDIUM   32    1     1      AdviceService::advise
+          [######..............]  src\ai_advisor.cpp:44
+          - direct caller of a changed function
+          - covered by at least one test path
+  MEDIUM   32    1     1      Money::parse
+          [######..............]  src\money.cpp:16
+          - direct caller of a changed function
+          - covered by at least one test path
+    ... 12 more (raise --max-rows to see)
+
+Why (shortest call path change -> impact)
+  [HIGH] Config::parse -> trim
+  [MEDIUM] test_strings_basics -> trim
+  [MEDIUM] UserService::add_from_record -> trim
+  [MEDIUM] parse_model_response -> trim
+  [MEDIUM] AdviceService::advise -> trim
+  [MEDIUM] Money::parse -> trim
+  [MEDIUM] UserService::normalize_email -> trim
+  [MEDIUM] json_array_elements -> trim
+  [MEDIUM] test_ai_advisor_flow -> AdviceService::advise -> trim
+  [MEDIUM] test_config_parsing -> Config::parse -> trim
+  [MEDIUM] test_domain_suite -> test_strings_basics -> trim
+  [MEDIUM] test_json_extraction -> json_array_elements -> trim
+
+Recommended test selection
+  T test_strings_basics  (tests\test_tinybank.cpp, 1 hop)
+  T test_ai_advisor_flow  (tests\test_tinybank.cpp, 2 hops)
+  T test_config_parsing  (tests\test_tinybank.cpp, 2 hops)
+  T test_domain_suite  (tests\test_tinybank.cpp, 2 hops)
+  T test_json_extraction  (tests\test_tinybank.cpp, 2 hops)
+  T test_money_parsing  (tests\test_tinybank.cpp, 2 hops)
+  T test_user_service_records  (tests\test_tinybank.cpp, 2 hops)
+  T main  (tests\test_main.cpp, 3 hops)
+  T test_integration_suite  (tests\test_tinybank.cpp, 3 hops)
+  T test_service_suite  (tests\test_tinybank.cpp, 3 hops)
+
+Limitations
+  * 245 call site(s) could not be resolved to a definition in this repo (external library, template, or ambiguous overload); those edges are excluded from the impact set, so the result is a lower bound.
+  * 3 short name(s) map to multiple definitions; such calls are only resolved when the scope chain or a unique global match decides it.
+
+========================================================================
+
+AI review guidance
+------------------------------------------------------------------------
+  provider=openai-compatible model=deepseek-chat prompt=7031 chars
+  grounding: impact set is authoritative; 8 point(s) kept
+
+Summary
+  本次改动集中在 src\strings.cpp:9 的 trim，但它有 8 个直接调用者，影响面扩散到 18 个函数、最深 3 层，涉及配置解析、用户记录、金额解析、JSON 提取和 AI 建议解析等多条业务路径。风险最高的是 Config::parse（HIGH 50，4 个直接调用者），因为 trim 的语义变化会直接改变配置键值的解析结果并向上传播到 load_config 与多个测试入口。静态分析有 245 个调用点未能解析，因此实际影响范围可能比这份清单更大，属于下界。
+
+What to check, per impacted function
+  [P1] Config::parse
+       check : 检查 src\config.cpp:11 附近对 trim 返回值的使用：是否依赖 trim 去除首尾空白后的结果做键值切分、比较或空串判断，尤其注意 trim 对全空白输入返回空串时后续逻辑是否仍成立。
+       why   : 它是风险分最高的直接调用者（fan-in 4），trim 行为变化会直接改变配置解析结果，并通过 load_config 和多个测试入口向上扩散。
+  [P2] UserService::add_from_record
+       check : 检查 src\user_service.cpp:18 处 trim 结果是否被用于字段拆分或空值判定，确认记录中带前后空白的字段在 trim 行为变化后仍能正确入库。
+       why   : 它是被 2 个调用者共享的直接调用者，解析错误会同时影响多条用户记录写入路径。
+  [P2] parse_model_response
+       check : 检查 src\ai_advisor.cpp:31 处 trim 是否用于清理模型返回文本再解析，确认 trim 后仍能正确识别分隔符或关键字，避免解析失败或字段错位。
+       why   : 它是被 2 个调用者共享的直接调用者，且位于 AI 建议解析链路上，trim 变化会直接影响模型输出的解析结果。
+  [P3] Money::parse
+       check : 检查 src\money.cpp:16 处 trim 后的字符串是否直接进入数值转换，确认前后空白被去除后不会产生空串或非法字符导致解析失败。
+       why   : 金额解析对输入格式敏感，trim 行为变化可能让原本可解析的金额变成解析错误。
+  [P3] UserService::normalize_email
+       check : 检查 src\user_service.cpp:14 处 trim 是否用于邮箱规范化，确认去除空白后的大小写与格式处理逻辑仍然一致。
+       why   : 邮箱规范化结果会影响用户匹配与去重，trim 变化可能导致同一邮箱被判定为不同值。
+  [P3] json_array_elements
+       check : 检查 src\json.cpp:51 处 trim 是否用于元素边界或分隔符判断，确认 trim 后空元素与含空白元素的处理仍然正确。
+       why   : JSON 数组元素提取依赖精确的字符串切分，trim 变化可能导致元素数量或内容偏差。
+  [P4] AdviceService::advise
+       check : 检查 src\ai_advisor.cpp:44 处对 trim 结果的使用是否影响建议文本的组装或条件分支，确认输出内容在 trim 变化后仍然符合预期。
+       why   : 它位于 AI 建议链路的直接调用层，trim 变化会改变最终返回给调用方的建议内容。
+  [P4] load_config
+       check : 检查 src\config.cpp:72 处对 Config::parse 结果的依赖，确认配置加载在 trim 行为变化后仍能得到完整、非空的配置项。
+       why   : 它经由 Config::parse 间接依赖 trim，且没有任何测试路径覆盖到该改动，属于未被测试保护的传播路径。
+
+### RippleTrace impact samples\tinybank --fn trim --fn to_lower --no-color --max-rows 2
+--------------------------------------------------------------------------------
+[RippleTrace] scanned 27 file(s), 97 functions, 164 edges
+涟漪 RippleTrace change-impact report
+========================================================================
+Changed (2): trim, to_lower
+
+Blast radius
+  impacted functions : 18   (max depth reached 3)
+  by risk            : 0 critical, 1 high, 14 medium, 3 low
+  tests to re-run    : 10
+  change interactions: 1
+
+Ranked impact (risk = fan-in x distance x exposure)
+  risk     score depth fan-in function
+------------------------------------------------------------------------
+  HIGH     50    1     4      Config::parse
+          [##########..........]  src\config.cpp:11
+          - moderate fan-in (4 direct callers)
+          - direct caller of a changed function
+          - covered by at least one test path
+  MEDIUM   44    1     1      test_strings_basics  [test]
+          [########............]  tests\test_tinybank.cpp:49
+          - direct caller of a changed function
+          - entry point
+          - covered by at least one test path
+    ... 16 more (raise --max-rows to see)
+
+Why (shortest call path change -> impact)
+  [HIGH] Config::parse -> trim
+  [MEDIUM] test_strings_basics -> to_lower
+  [MEDIUM] UserService::add_from_record -> trim
+  [MEDIUM] parse_model_response -> trim
+  [MEDIUM] AdviceService::advise -> trim
+  [MEDIUM] Money::parse -> trim
+  [MEDIUM] UserService::normalize_email -> to_lower
+  [MEDIUM] json_array_elements -> trim
+  [MEDIUM] test_ai_advisor_flow -> AdviceService::advise -> trim
+  [MEDIUM] test_config_parsing -> Config::parse -> trim
+  [MEDIUM] test_domain_suite -> test_strings_basics -> to_lower
+  [MEDIUM] test_json_extraction -> json_array_elements -> trim
+
+Change interactions (cannot be validated separately)
+  ! to_lower  <->  trim
+      shared caller depends on both changes; e.g. UserService::normalize_email
+
+Recommended test selection
+  T test_strings_basics  (tests\test_tinybank.cpp, 1 hop)
+  T test_ai_advisor_flow  (tests\test_tinybank.cpp, 2 hops)
+  T test_config_parsing  (tests\test_tinybank.cpp, 2 hops)
+  T test_domain_suite  (tests\test_tinybank.cpp, 2 hops)
+  T test_json_extraction  (tests\test_tinybank.cpp, 2 hops)
+  T test_money_parsing  (tests\test_tinybank.cpp, 2 hops)
+  T test_user_service_records  (tests\test_tinybank.cpp, 2 hops)
+  T main  (tests\test_main.cpp, 3 hops)
+  T test_integration_suite  (tests\test_tinybank.cpp, 3 hops)
+  T test_service_suite  (tests\test_tinybank.cpp, 3 hops)
+
+Limitations
+  * 245 call site(s) could not be resolved to a definition in this repo (external library, template, or ambiguous overload); those edges are excluded from the impact set, so the result is a lower bound.
+  * 3 short name(s) map to multiple definitions; such calls are only resolved when the scope chain or a unique global match decides it.
+
+========================================================================
+
+AI review guidance
+------------------------------------------------------------------------
+  provider=openai-compatible model=deepseek-chat prompt=7222 chars
+  grounding: impact set is authoritative; 8 point(s) kept
+
+Summary
+  本次改动同时修改了 to_lower 和 trim 两个基础字符串函数，影响面覆盖 18 个函数、最深 3 层调用链，且两者存在共享调用方（2 个），因此同一处调用点可能同时受两个改动影响。风险最高的是 Config::parse，它直接调用 trim 且有 4 个直接调用者，配置解析一旦行为变化会波及 load_config 及多条测试路径。此外 load_config 没有任何测试路径覆盖到本次改动，是回归验证的盲区；静态分析还有 245 个调用点未能解析，实际影响范围可能更大，属于下界。
+
+What to check, per impacted function
+  [P1] Config::parse
+       check : 确认 trim 对配置值首尾空白（含制表符、换行、空字符串）的处理结果是否与改动前一致，特别是空值或全空白值被 trim 后是否变成空串并影响后续解析分支。
+       why   : 它是 trim 的直接调用者且 fan-in 为 4，配置解析结果会被多个上层模块复用，trim 语义变化会直接改变解析出的键值。
+  [P2] load_config
+       check : 检查 load_config -> Config::parse -> trim 这条链上配置加载的返回值与错误处理，确认改动后加载失败或空配置的场景是否仍按预期返回。
+       why   : 该函数位于改动下游 2 跳且没有任何测试路径覆盖到本次改动，是回归风险最高但最容易被漏测的入口。
+  [P3] UserService::add_from_record
+       check : 核对从记录中提取字段时 trim 后的结果是否仍能正确匹配字段名/值，注意记录中带前后空白的字段是否被误判为空或匹配失败。
+       why   : 它是 trim 的直接调用者且被 2 个调用方共享，字段解析偏差会同时影响这两条调用路径。
+  [P3] parse_model_response
+       check : 验证对模型返回文本做 trim 后，解析逻辑对空行、纯空白行以及行尾空白的处理是否与改动前一致。
+       why   : 它直接调用 trim 且被 2 个调用方共享，解析结果会传递给上层 AI 建议流程。
+  [P4] UserService::normalize_email
+       check : 确认 to_lower 改动后邮箱大小写归一化结果不变，尤其关注非 ASCII 字符或已是大写的输入是否被错误转换。
+       why   : 它是 to_lower 的直接调用者，归一化结果直接影响邮箱唯一性与匹配逻辑。
+  [P4] Money::parse
+       check : 检查 trim 后金额字符串的解析，确认前后空白被去除后不会导致数值解析失败或精度变化。
+       why   : 它直接调用 trim，金额解析错误会直接产生错误的业务数值。
+  [P4] json_array_elements
+       check : 确认对 JSON 片段做 trim 后，元素切分与空元素判断是否仍正确，注意数组中出现空字符串或纯空白元素的情况。
+       why   : 它直接调用 trim，切分结果会影响所有依赖 JSON 数组提取的上层逻辑。
+  [P5] AdviceService::advise
+       check : 验证 advise 调用 trim 的输入输出在改动后保持一致，确认建议文本的空白处理不影响下游展示或断言。
+       why   : 它是 trim 的直接调用者，且位于 test_ai_advisor_flow 与 test_integration_suite 的调用链上，行为变化会传导到集成测试。
+
+### RippleTrace tests samples\tinybank --fn trim --no-color
+--------------------------------------------------------------------------------
+[RippleTrace] scanned 27 file(s), 97 functions, 164 edges
+Recommended tests (10):
+  test_strings_basics   tests\test_tinybank.cpp  1 hop
+  test_ai_advisor_flow   tests\test_tinybank.cpp  2 hops
+  test_config_parsing   tests\test_tinybank.cpp  2 hops
+  test_domain_suite   tests\test_tinybank.cpp  2 hops
+  test_json_extraction   tests\test_tinybank.cpp  2 hops
+  test_money_parsing   tests\test_tinybank.cpp  2 hops
+  test_user_service_records   tests\test_tinybank.cpp  2 hops
+  main   tests\test_main.cpp  3 hops
+  test_integration_suite   tests\test_tinybank.cpp  3 hops
+  test_service_suite   tests\test_tinybank.cpp  3 hops
+
