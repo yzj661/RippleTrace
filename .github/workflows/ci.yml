@@ -20,7 +20,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # build.bat locates vcvars64.bat itself (hardcoded paths first, then
       # vswhere), so the runner's VS edition does not matter.
